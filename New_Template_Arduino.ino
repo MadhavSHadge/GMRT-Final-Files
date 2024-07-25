@@ -18,6 +18,8 @@ int gearRatio = 1;          // Default to 1 to prevent division by zero
 int antennaAngle = 0;
 int newPulses = 0;
 
+bool stopRequested = false;
+
 void setup() {
   Serial.begin(9600);
   pinMode(enablePin, OUTPUT);
@@ -169,4 +171,8 @@ void reset() {
   stopMotor();
 
   Serial.println("Parameters reset. Antenna returned to original position.");
+}
+
+void requestStop(){
+  stopRequested = true;
 }
