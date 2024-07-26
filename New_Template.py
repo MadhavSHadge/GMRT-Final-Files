@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jul 25 14:15:34 2024
+Created on Wed Jul 25 14:16:27 2024
 
 @author: madhav
 """
@@ -19,7 +19,7 @@ import datetime
 import time
 
 # Define the file path for saving motor settings
-file_path = 'motor_settings.txt'
+file_path = '/home/madhav/Documents/FINALS/IMPROVED FROM GUI_VERSION_7/motor_settings.txt'
 
 class MotorControlGUI(QMainWindow):
     def __init__(self, motor_control):
@@ -117,10 +117,6 @@ class MotorControlGUI(QMainWindow):
         start_stop_layout = QHBoxLayout()
         timer_layout.addLayout(start_stop_layout)
     
-        self.start_button = QPushButton('Start')
-        self.start_button.clicked.connect(self.start_timer)
-        start_stop_layout.addWidget(self.start_button)
-    
         self.stop_button_timer = QPushButton('Stop')
         self.stop_button_timer.clicked.connect(self.stop_timer)
         start_stop_layout.addWidget(self.stop_button_timer)
@@ -160,6 +156,11 @@ class MotorControlGUI(QMainWindow):
     
         self.calculated_speed_display = QLabel('N/A')
         motor_controls_layout.addWidget(self.calculated_speed_display)
+    
+        # Speed Set Button
+        self.speed_set_button = QPushButton('Speed Set')
+        self.speed_set_button.clicked.connect(self.set_speed)
+        motor_controls_layout.addWidget(self.speed_set_button)
     
         second_row_layout.addWidget(motor_controls_group)
     
@@ -253,170 +254,145 @@ class MotorControlGUI(QMainWindow):
             # Log the PWM value to file
             self.motor_control.write_log(f"Timer set: {total_time} seconds, Angle: {angle_value} degrees, Angle per minute: {angle_per_minute}, PWM calculated: {pwm_value}")
 
-            # Send the PWM value to Arduino via serial
-            self.send_serial_command(f"P{pwm_value}")
-
-            # Debug print to console
-            print(f"Timer set: {total_time} seconds, Angle: {angle_value} degrees, Angle per minute: {angle_per_minute}, PWM calculated: {pwm_value}")
+            # Send the calculated PWM to the motor (use a dummy serial command here)
+            self.send_serial_command(f"PWM:{pwm_value}")
 
         except ValueError as e:
             QMessageBox.critical(self, "Invalid Input", str(e))
+    
+    def update_timer(self):
+        try:
+            hours = int(self.hours_entry.text())
+            minutes = int(self.minutes_entry.text())
+            seconds = int(self.seconds_entry.text())
 
-    # Method to send PWM value to Arduino
-    def send_pwm_to_arduino(self, pwm_value):
-        if self.arduino_serial.isOpen():
-            self.arduino_serial.write(f"{pwm_value}\n".encode())
-        else:
-                print("Serial connection to Arduino is not open.")
+            if seconds > 0:
+                seconds -= 1
+            elif minutes > 0:
+                minutes -= 1
+                seconds = 59
+            elif hours > 0:
+                hours -= 1
+                minutes = 59
+                seconds = 59
+            else:
+                self.stop_timer()  # Stop the timer and send the stop command to Arduino
+                QMessageBox.information(self, "Timer Finished", "The timer has finished.")
+                return
 
+            self.hours_entry.setText(str(hours).zfill(2))
+            self.minutes_entry.setText(str(minutes).zfill(2))
+            self.seconds_entry.setText(str(seconds).zfill(2))
+        except ValueError:
+            QMessageBox.critical(self, "Invalid Input", "Please enter valid integers for hours, minutes, and seconds.")
+            self.timer.stop()
 
     def stop_timer(self):
         if hasattr(self, 'timer'):
             self.timer.stop()
-        self.motor_control.stop_motor()
-        QMessageBox.information(self, "Timer Stopped", "The timer has been stopped and motor has been stopped.")
-        self.motor_control.write_log("Timer stopped")
+            self.send_serial_command('S')  # Send the stop command to Arduino
+            self.motor_control.write_log("Timer stopped and 'S' command sent to Arduino")
+    
+    def submit_pulses(self):
+        pulses_per_rev = self.pulses_entry.text().strip()
+        self.send_serial_command(f"P:{pulses_per_rev}")
 
-    @pyqtSlot()
-    def update_timer(self):
-        total_time = int(self.hours_entry.text()) * 3600 + int(self.minutes_entry.text()) * 60 + int(self.seconds_entry.text())
-        total_time -= 1
-
-        hours = total_time // 3600
-        minutes = (total_time % 3600) // 60
-        seconds = total_time % 60
-
-        self.hours_entry.setText(f"{hours:02}")
-        self.minutes_entry.setText(f"{minutes:02}")
-        self.seconds_entry.setText(f"{seconds:02}")
-
-        if total_time <= 0:
-            self.timer.stop()
-            self.motor_control.stop_motor()
-            QMessageBox.information(self, "Timer Finished", "The timer has finished and motor has been stopped.")
-            self.motor_control.write_log("Timer finished")
-   
-    def submit_parameters(self):
-        angle = self.pulse_entry.text()
-        self.motor_control.send_command(f"A{angle}")
-
-        # Handle pulses per revolution separately if needed
-        pulses_per_revolution = self.pulses_entry.text()
-        if pulses_per_revolution.isdigit():
-            self.motor_control.set_pulses_per_revolution(int(pulses_per_revolution))
-
-        self.motor_control.write_motor_settings()
-        QMessageBox.information(self, "Parameters Set", "All parameters have been submitted and set.")
-        self.motor_control.write_log(f"Angle set: {angle}, Pulses per revolution set: {pulses_per_revolution}")
+    def submit_gear_ratio(self):
+        gear_ratio = self.gear_ratio_entry.text().strip()
+        self.send_serial_command(f"G:{gear_ratio}")
 
     def submit_angle(self):
         angle = self.pulse_entry.text().strip()
-        try:
-            angle_value = int(angle)
-            if angle_value < 0 or angle_value > 360:
-                raise ValueError("Angle must be between 0 and 360 degrees.")
+        self.send_serial_command(f"A:{angle}")
 
-            # Send angle value to Arduino
-            self.send_serial_command(f"A{angle_value}")
-            QMessageBox.information(self, "Angle Set", f"Angle set to {angle_value} degrees.")
-            self.motor_control.write_log(f"Angle set: {angle_value}")
+    def set_speed(self):
+            try:
+                # Get the speed value from the input or any desired logic
+                speed_value = int(self.calculated_speed_display.text())
+                # Send 'M' followed by the speed value to the Arduino
+                self.send_serial_command(f"M{speed_value}")
+                QMessageBox.information(self, "Speed Set", f"Speed set to {speed_value}")
+                self.motor_control.write_log(f"Speed set to {speed_value}")
+            except ValueError:
+                QMessageBox.critical(self, "Invalid Speed", "Please enter a valid speed value.")
 
-        except ValueError as e:
-            QMessageBox.critical(self, "Invalid Input", str(e))
-    
-    def submit_pulses(self):
-        pulses_per_revolution = self.pulses_entry.text().strip()
-        try:
-            pulses_value = int(pulses_per_revolution)
-            if pulses_value <= 0:
-                raise ValueError("Pulses per revolution must be a positive integer.")
+    def submit_parameters(self):
+        self.start_timer()
+        pulses_per_rev = self.pulses_entry.text().strip()
+        gear_ratio = self.gear_ratio_entry.text().strip()
+        angle = self.pulse_entry.text().strip()
 
-            # Send pulses per revolution value to Arduino
-            self.send_serial_command(f"P{pulses_value}")
-            QMessageBox.information(self, "Pulses Set", f"Pulses per revolution set to {pulses_value}.")
-            self.motor_control.write_log(f"Pulses per revolution set: {pulses_value}")
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Invalid Input", str(e))
-    
-    def submit_gear_ratio(self):
-        gear_ratio_text = self.gear_ratio_entry.text().strip()
-        try:
-            gear_ratio = float(gear_ratio_text)
-            if gear_ratio <= 0:
-                raise ValueError("Gear ratio must be a positive number.")
-
-            # Send gear ratio value to Arduino
-            self.send_serial_command(f"G{gear_ratio}")
-            QMessageBox.information(self, "Gear Ratio Set", f"Gear ratio set to {gear_ratio}.")
-            self.motor_control.write_log(f"Gear ratio set: {gear_ratio}")
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Invalid Input", str(e))
-
-
-    def forward(self):
-        self.send_serial_command('F')  # Send command 'F' for forward to Arduino
-        QMessageBox.information(self, "Direction Set", "Direction set to Clockwise")
-        self.motor_control.write_log("Direction set to Clockwise")
-
-    def backward(self):
-        self.send_serial_command('B')  # Send command 'B' for backward to Arduino
-        QMessageBox.information(self, "Direction Set", "Direction set to Anticlockwise")
-        self.motor_control.write_log("Direction set to Anticlockwise")
-
-    def direction_count(self):
-        self.send_serial_command('D')  # Send command 'D' for direction count to Arduino
-        QMessageBox.information(self, "Direction Count", "Direction count set")
-        self.motor_control.write_log("Direction count set")
-
-    def read_encoder(self):
-        self.send_serial_command('E')  # Send command 'E' to request encoder value
-        time.sleep(0.1)  # Wait for the Arduino to process and respond
-
-        if self.serial_port.in_waiting > 0:
-                encoder_value = self.serial_port.readline().decode().strip()
-                self.encoder_value_label.setText(f"Current Encoder Value: {encoder_value}")
-                self.motor_control.write_log(f"Encoder value read: {encoder_value}")
-        else:
-                QMessageBox.critical(self, "Read Error", "Failed to read encoder value. No data available.")
-                self.motor_control.write_log("Failed to read encoder value")
+        with open(file_path, 'w') as file:
+            file.write(f"{pulses_per_rev}\n")
+            file.write(f"{angle}\n")
+        
+        self.motor_control.write_log(f"Parameters submitted: Pulses per Rev: {pulses_per_rev}, Gear Ratio: {gear_ratio}, Antenna Angle: {angle}")
 
     def reset_all(self):
+        self.pulses_entry.clear()
+        self.gear_ratio_entry.clear()
         self.pulse_entry.clear()
         self.hours_entry.setText('00')
         self.minutes_entry.setText('00')
         self.seconds_entry.setText('00')
         self.calculated_speed_display.setText('N/A')
-        self.encoder_value_label.setText('Current Encoder Value: N/A')
-        self.motor_control.stop_motor()
-        QMessageBox.information(self, "Reset", "All settings have been reset.")
-        self.motor_control.write_log("All settings reset")
+        self.send_serial_command('Reset')
+        QMessageBox.information(self, "Reset", "All parameters have been reset.")
 
+    def forward(self):
+        self.send_serial_command('F')
+        self.motor_control.write_log("Motor set to rotate clockwise")
+
+    def backward(self):
+        self.send_serial_command('B')
+        self.motor_control.write_log("Motor set to rotate anticlockwise")
+
+    def direction_count(self):
+        self.send_serial_command('DF')
+        self.motor_control.write_log("Direction find initiated")
+
+    def read_encoder(self):
+        self.send_serial_command('RE')
+        self.motor_control.write_log("Read encoder value command sent")
+    
     def setDarkMode(self):
-        palette = QPalette()
-        palette.setColor(QPalette.Window, QColor(53, 53, 53))
-        palette.setColor(QPalette.WindowText, Qt.white)
-        palette.setColor(QPalette.Base, QColor(25, 25, 25))
-        palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-        palette.setColor(QPalette.ToolTipBase, Qt.white)
-        palette.setColor(QPalette.ToolTipText, Qt.white)
-        palette.setColor(QPalette.Text, Qt.white)
-        palette.setColor(QPalette.Button, QColor(53, 53, 53))
-        palette.setColor(QPalette.ButtonText, Qt.white)
-        palette.setColor(QPalette.BrightText, Qt.red)
-        palette.setColor(QPalette.Link, QColor(42, 130, 218))
-        palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-        palette.setColor(QPalette.HighlightedText, Qt.black)
-        self.setPalette(palette)
-
-    def closeEvent(self, event):
-        self.serial_port.close()
-        super().closeEvent(event)
+        dark_palette = QPalette()
+        dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
+        dark_palette.setColor(QPalette.WindowText, Qt.white)
+        dark_palette.setColor(QPalette.Base, QColor(35, 35, 35))
+        dark_palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+        dark_palette.setColor(QPalette.ToolTipBase, Qt.white)
+        dark_palette.setColor(QPalette.ToolTipText, Qt.white)
+        dark_palette.setColor(QPalette.Text, Qt.white)
+        dark_palette.setColor(QPalette.Button, QColor(53, 53, 53))
+        dark_palette.setColor(QPalette.ButtonText, Qt.white)
+        dark_palette.setColor(QPalette.BrightText, Qt.red)
+        dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
+        dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+        dark_palette.setColor(QPalette.HighlightedText, Qt.black)
         
+        self.setPalette(dark_palette)
+
+class MotorControl:
+    def __init__(self):
+        log_folder = "motor_logs"
+        if not os.path.exists(log_folder):
+            os.makedirs(log_folder)
+        log_filename = f"{log_folder}/motor_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        self.log_file = open(log_filename, "w")
+    
+    def write_log(self, message):
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.log_file.write(f"{timestamp}: {message}\n")
+        self.log_file.flush()
+
+    def close(self):
+        self.log_file.close()
+
 if __name__ == '__main__':
+    motor_control = MotorControl()
     app = QApplication(sys.argv)
-    motor_control = None  # Replace with your motor control instance
     window = MotorControlGUI(motor_control)
     window.show()
-    sys.exit(app.exec_())
+    app.exec_()
+    motor_control.close()
