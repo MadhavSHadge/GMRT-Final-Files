@@ -21,6 +21,7 @@ bool stopRequested = false;     //for stopping the while loop
 
 void setup() {
   Serial.begin(9600);   //serial communication baudrate setting
+  
   //motor pins declared as output
   pinMode(enablePin, OUTPUT);
   pinMode(int1Pin, OUTPUT);
@@ -38,54 +39,63 @@ void setup() {
 void loop() {
  {
   Serial.println(encoderValue);
-  delay(1000); //just here to slow down the output, and show it will work  even during a delay
+  delay(2000); //just here to slow down the output, and show it will work  even during a delay
 }
   
   if (Serial.available() > 0) {
-    char command = Serial.read();
+    char command = Serial.read();       //read commands that are being sent from python
     
-    switch (command) {
+    switch (command) {            //set the case as per the commands sent from the python gui
       case 'A':  // Set Antenna Angle
         antennaAngle = Serial.parseInt();
         Serial.print("Received Antenna Angle: ");
         Serial.println(antennaAngle);
-        conversion();
         break;
+        
       case 'P':  // Set Pulse Count per Revolution
         newPulses = Serial.parseInt();
         Serial.print("Pulse count per revolution: ");
         Serial.println(newPulses);
-        conversion();
         break;
+        
       case 'G':  // Set Gear Ratio
         gearRatio = Serial.parseInt();
         Serial.print("Gear Ratio: ");
         Serial.println(gearRatio);
         break;
+        
       case 'F':  // clockwise
-        forward(speed, encoderValue, maximumEncoderValue);
+        forward(speed, maximumEncoderValue, requestStop);
         Serial.println("Forward direction");
+        conversion();
         break;
+        
       case 'B':  // anticlockwise
-        backward(speed, encoderValue, maximumEncoderValue);
+        backward(speed, maximumEncoderValue, requestStop);
         Serial.println("Backward direction");
+        conversion();
         break;
+        
       case 'D':  // Direction Check
         directionCheck(encoderValue);
         break;
+        
       case 'R':  // Reset the antenna position to zero
-        reset();
+        reset (requiredPulsesForRotation);
         break;
+        
       case 'S':   // Stop the motor
         analogWrite(enablePin, 0);
         Serial.println("Motor stopped.");
         break;
+        
       case 'M':   //set speed i.e pwm in motor
         speed = Serial.parseInt();
         Serial.print("Speed Received : ");
         Serial.println(speed);
         break;
-      default:
+        
+      default:      //handle unknown commands
         Serial.print("Unknown command: ");
         Serial.println(command);
         break;
@@ -94,16 +104,16 @@ void loop() {
 }
 
 void conversion(){        //converting the pulses to maximumEncoderValue we can get for 360 degree of rotation
-  long pulsesPerRevolution = newPulses * 4;
-  maximumEncoderValue = (pulsesPerRevolution * gearRatio);
-  requiredPulsesForRotation= (maximumEncoderValue / 360)*antennaAngle;
+  long pulsesPerRevolution = newPulses * 4;       //multiply it by 4 to get encoder count
+  maximumEncoderValue = (pulsesPerRevolution * gearRatio);      //multiply it by gear ratio to get maximum pulses antenna can rotate
+  requiredPulsesForRotation= (maximumEncoderValue / 360)*antennaAngle;        //pulses the antenna will rotate for
   Serial.println("Maximum Encoder Value is:- ");
   Serial.println(maximumEncoderValue);
   Serial.println("Required Pulses for Rotation is:- ");
   Serial.println(requiredPulsesForRotation);
 }
 
-void updateEncoder() {        //arduino counting using A and B pulse from the encoder
+void updateEncoder() {        //arduino counting using A and B pulse from the encoder  !!do not change!!
   static int lastEncoded = 0;
   int MSB = digitalRead(encoderPin1);
   int LSB = digitalRead(encoderPin2);
@@ -119,27 +129,29 @@ void updateEncoder() {        //arduino counting using A and B pulse from the en
 }
 
 
-void forward(int speed, int encoderValue, long requiredPulsesforRotation) {         // function that will rotate the motor clockwise
+void forward(int speed, long requiredPulsesforRotation, bool requestStop) {         // function that will rotate the motor clockwise
   long targetEncoderValue = encoderValue + requiredPulsesforRotation;
   stopRequested = false;  // reset before starting
-
+  
   while (encoderValue <= targetEncoderValue && !stopRequested) {
     analogWrite(enablePin, speed);
     digitalWrite(int1Pin, HIGH);
     digitalWrite(int2Pin, LOW);
     Serial.println("motor running in CW Direction \n");
     Serial.println(encoderValue);
-
+    Serial.println("Speed was set to:- ");
+    Serial.println(speed);
+    
     // Check if stop is pressed
     if (stopRequested) {
       break;  // quit the loop if pressed
     }
   }
-
   stopMotor();  // stop after the motor completes the loop
+  Serial.println("Motor has been stopped ");
 }
 
-void backward(int speed, int encoderValue, long requiredPulsesforRotation) {        //function that will rotate the motor anticlockwise
+void backward(int speed, long requiredPulsesforRotation, bool requestStop) {        //function that will rotate the motor anticlockwise
   long targetEncoderValue = encoderValue - requiredPulsesforRotation;
   stopRequested = false;    //reset before starting
   
@@ -148,6 +160,9 @@ void backward(int speed, int encoderValue, long requiredPulsesforRotation) {    
     digitalWrite(int1Pin, LOW);
     digitalWrite(int2Pin, HIGH);
     Serial.println("motor running in CCW Direction \n");
+    Serial.println(encoderValue);
+    Serial.println("Speed was set to:- ");
+    Serial.println(speed);
 
     //Check if stop is pressed
     if (stopRequested) {
@@ -156,6 +171,7 @@ void backward(int speed, int encoderValue, long requiredPulsesforRotation) {    
   }
   
   stopMotor();    //stop after the motor completes the loop
+  Serial.println("Motor has been Stopped ");
 }
 
 void stopMotor() {          // function that will stop the motor
@@ -177,7 +193,7 @@ void directionCheck(long currentEncoderValue) {     //function to check rotation
   previousEncoderValue = currentEncoderValue;
 }
 
-void reset() {                  // rotate the antenna to its reset position, which here is set to 0
+void reset(long requiredPulsesForRotation) {                  // rotate the antenna to its reset position, which here is set to 0
   while (encoderValue >= 0) {
     analogWrite(enablePin,255);
     digitalWrite(int1Pin, LOW);
@@ -185,10 +201,10 @@ void reset() {                  // rotate the antenna to its reset position, whi
     Serial.println("!!RESETTING THE ANTENNA POSITIONS!!!");
   }
   stopMotor();
-
   Serial.println("Parameters reset. Antenna returned to original position.");
 }
 
 void requestStop(){       // software interrupt that will stop the motor at any point
   stopRequested = true;
+  stopMotor();
 }
