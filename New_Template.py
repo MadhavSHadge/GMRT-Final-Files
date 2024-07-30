@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jul 26 14:16:27 2024
-
-
-
-@author: madhav
+Created on Tue Jul 30 09:35:27 2024
+@author: Madhav Hadge
 """
 
 import sys
 import os
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QGroupBox, QGridLayout, QMessageBox, QSpacerItem, QSizePolicy
+    QLineEdit, QPushButton, QGroupBox, QSpacerItem, QSizePolicy, QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot
-from PyQt5.QtGui import QFont, QColor, QPalette
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QPalette, QColor
 import serial
 import datetime
-import time
 
 # Define the file path for saving motor settings
 file_path = '/home/madhav/Documents/FINALS/IMPROVED FROM GUI_VERSION_7/motor_settings.txt'
@@ -27,32 +23,27 @@ class MotorControlGUI(QMainWindow):
     def __init__(self, motor_control):
         super().__init__()
         self.motor_control = motor_control
+        self.pwm_value = None  # Initialize PWM value as None
         self.initUI()
-        
-        #initialize serial communication
         self.init_serial()
-        
+
     def init_serial(self):
         self.serial_port = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)  # Adjust COM port as needed
 
-        #sending serial commands from python to arduino
     def send_serial_command(self, command):
         if self.serial_port.is_open:
             self.serial_port.write(command.encode())
         else:
             QMessageBox.critical(self, "Serial Port Error", "Serial port is not open.")
 
-        #UI Resolution
     def initUI(self):
         self.setWindowTitle('Arduino Motor Control')
         self.setGeometry(100, 100, 800, 600)
-        
-        # Set dark mode theme
         self.setDarkMode()
-    
+        
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout()  # Use QVBoxLayout for vertical layout
+        main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
     
         # First Row: Set Pulses per Revolution, Set Gear Ratio, Set Antenna Angle, Set Clock For Rotation
@@ -205,14 +196,12 @@ class MotorControlGUI(QMainWindow):
         # Initialize settings from file
         self.read_motor_settings()
 
-        #function to reset antenna position for calibration
     def reset_antenna_position(self):
         self.pulse_entry.clear()
         self.send_serial_command('R')
         QMessageBox.information(self, "Reset Antenna Position", "Antenna position has been reset.")
         self.motor_control.write_log("Antenna position reset")
 
-        #read motor setting from the file
     def read_motor_settings(self):
         if os.path.exists(file_path):
             with open(file_path, 'r') as file:
@@ -220,16 +209,13 @@ class MotorControlGUI(QMainWindow):
                 if len(lines) >= 2:
                     self.pulse_entry.setText(lines[1].strip())
 
-        #Timer function that calculates speed in PWM from the Input time and pulses
     def start_timer(self):
         try:
-            # Convert user input for hours, minutes, and seconds into total seconds
             total_time = int(self.hours_entry.text()) * 3600 + int(self.minutes_entry.text()) * 60 + int(self.seconds_entry.text())
         except ValueError:
             QMessageBox.critical(self, "Invalid Input", "Please enter valid integers for hours, minutes, and seconds.")
             return
 
-        # Ensure total_time is not zero to avoid division by zero
         if total_time == 0:
             QMessageBox.critical(self, "Invalid Input", "Total time must be greater than zero.")
             return
@@ -238,31 +224,22 @@ class MotorControlGUI(QMainWindow):
         self.timer.timeout.connect(self.update_timer)
         self.timer.start(1000)
 
-        # Calculate the time in minutes from the total time in seconds
         time_in_minutes = total_time / 60
         
-        # Fetch the angle entered by the user in the GUI
         angle = self.pulse_entry.text().strip()
         try:
             angle_value = float(angle)
             if angle_value < 0 or angle_value > 360:
                 raise ValueError("Angle must be between 0 and 360 degrees.")
             
-            # Calculate the angle per minute
             angle_per_minute = angle_value / time_in_minutes
-
-            # Calculate PWM for the given angle per minute
             max_pwm = 255
-            pwm_value = min(max(int((angle_per_minute * max_pwm) / 360), 0), max_pwm)
+            self.pwm_value = min(max(int((angle_per_minute * max_pwm) / 360), 0), max_pwm)
 
-            # Display calculated PWM in the GUI
-            self.calculated_speed_display.setText(str(pwm_value))
+            self.calculated_speed_display.setText(str(self.pwm_value))
+            self.motor_control.write_log(f"Timer set: {total_time} seconds, Angle: {angle_value} degrees, Angle per minute: {angle_per_minute}, PWM calculated: {self.pwm_value}")
 
-            # Log the PWM value to file
-            self.motor_control.write_log(f"Timer set: {total_time} seconds, Angle: {angle_value} degrees, Angle per minute: {angle_per_minute}, PWM calculated: {pwm_value}")
-
-            # Send the calculated PWM to the motor (use a dummy serial command here)
-            self.send_serial_command(f"PWM:{pwm_value}")
+            self.send_serial_command(f"PWM:{self.pwm_value}")
 
         except ValueError as e:
             QMessageBox.critical(self, "Invalid Input", str(e))
@@ -283,7 +260,7 @@ class MotorControlGUI(QMainWindow):
                 minutes = 59
                 seconds = 59
             else:
-                self.stop_timer()  # Stop the timer and send the stop command to Arduino
+                self.stop_timer()
                 QMessageBox.information(self, "Timer Finished", "The timer has finished.")
                 return
 
@@ -294,41 +271,40 @@ class MotorControlGUI(QMainWindow):
             QMessageBox.critical(self, "Invalid Input", "Please enter valid integers for hours, minutes, and seconds.")
             self.timer.stop()
 
-        #stop timer such that when the timer is stopped the motor will stop 
     def stop_timer(self):
         if hasattr(self, 'timer'):
             self.timer.stop()
-            self.send_serial_command('S')  # Send the stop command to Arduino
+            self.send_serial_command('S')
             self.motor_control.write_log("Timer stopped and 'S' command sent to Arduino")
 
-        #submit the pulse value to arduino via serial
     def submit_pulses(self):
         pulses_per_rev = self.pulses_entry.text().strip()
         self.send_serial_command(f"P:{pulses_per_rev}")
 
-        #submit the gear ratio to arduino via serial
     def submit_gear_ratio(self):
         gear_ratio = self.gear_ratio_entry.text().strip()
         self.send_serial_command(f"G:{gear_ratio}")
 
-        #submit the angle in degrees to arduino via serial
     def submit_angle(self):
         angle = self.pulse_entry.text().strip()
         self.send_serial_command(f"A:{angle}")
 
-        #submit the speed value in PWM to arduino via serial
     def set_speed(self):
-            try:
-                # Get the speed value from the input or any desired logic
-                speed_value = int(self.calculated_speed_display.text())
-                # Send 'M' followed by the speed value to the Arduino
-                self.send_serial_command(f"M{speed_value}")
-                QMessageBox.information(self, "Speed Set", f"Speed set to {speed_value}")
-                self.motor_control.write_log(f"Speed set to {speed_value}")
-            except ValueError:
-                QMessageBox.critical(self, "Invalid Speed", "Please enter a valid speed value.")
+        try:
+            if self.pwm_value is None:
+                QMessageBox.critical(self, "Invalid Speed", "Calculated speed is not available.")
+                return
 
-        #submit the all parameters to arduino via serial
+            if not (0 <= self.pwm_value <= 255):
+                raise ValueError("Speed value must be between 0 and 255.")
+            
+            self.send_serial_command(f"M{self.pwm_value}")
+            QMessageBox.information(self, "Speed Set", f"Speed set to {self.pwm_value}")
+            self.motor_control.write_log(f"Speed set to {self.pwm_value}")
+
+        except ValueError as e:
+            QMessageBox.critical(self, "Invalid Speed", str(e))
+
     def submit_parameters(self):
         self.start_timer()
         pulses_per_rev = self.pulses_entry.text().strip()
@@ -341,7 +317,6 @@ class MotorControlGUI(QMainWindow):
         
         self.motor_control.write_log(f"Parameters submitted: Pulses per Rev: {pulses_per_rev}, Gear Ratio: {gear_ratio}, Antenna Angle: {angle}")
 
-        #reset all the entry values inside the GUI
     def reset_all(self):
         self.pulses_entry.clear()
         self.gear_ratio_entry.clear()
@@ -353,26 +328,22 @@ class MotorControlGUI(QMainWindow):
         self.send_serial_command('Reset')
         QMessageBox.information(self, "Reset", "All parameters have been reset.")
 
-        #send F to arduino to via serial
     def forward(self):
         self.send_serial_command('F')
         self.motor_control.write_log("Motor set to rotate clockwise")
 
-        #send B to arduino to via serial
     def backward(self):
         self.send_serial_command('B')
         self.motor_control.write_log("Motor set to rotate anticlockwise")
 
-        #send D to arduino to via serial
     def direction_count(self):
         self.send_serial_command('D')
         self.motor_control.write_log("Direction find initiated")
 
-        #send RE to arduino to via serial
     def read_encoder(self):
         self.send_serial_command('RE')
         self.motor_control.write_log("Read encoder value command sent")
-    
+
     def setDarkMode(self):
         dark_palette = QPalette()
         dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
