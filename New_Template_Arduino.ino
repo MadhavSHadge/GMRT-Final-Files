@@ -137,10 +137,7 @@ void forward(int speed, long requiredPulsesforRotation, bool requestStop) {     
     analogWrite(enablePin, speed);
     digitalWrite(int1Pin, HIGH);
     digitalWrite(int2Pin, LOW);
-    Serial.println("motor running in CW Direction \n");
     Serial.println(encoderValue);
-    Serial.println("Speed was set to:- ");
-    Serial.println(speed);
     
     // Check if stop is pressed
     if (stopRequested) {
@@ -161,8 +158,7 @@ void backward(int speed, long requiredPulsesforRotation, bool requestStop) {    
     digitalWrite(int2Pin, HIGH);
     Serial.println("motor running in CCW Direction \n");
     Serial.println(encoderValue);
-    Serial.println("Speed was set to:- ");
-    Serial.println(speed);
+
 
     //Check if stop is pressed
     if (stopRequested) {
